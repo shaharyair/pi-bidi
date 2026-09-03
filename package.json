@@ -1,0 +1,61 @@
+{
+  "name": "pi-bidi",
+  "version": "0.1.0",
+  "description": "Renders right-to-left text (Hebrew, Arabic, Persian) correctly in Pi on terminals without bidi support.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Shahar Yair",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaharyair/pi-bidi.git"
+  },
+  "homepage": "https://github.com/shaharyair/pi-bidi#readme",
+  "bugs": {
+    "url": "https://github.com/shaharyair/pi-bidi/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "bidi",
+    "rtl",
+    "hebrew",
+    "arabic",
+    "persian",
+    "unicode",
+    "terminal"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "pi": {
+    "extensions": [
+      "dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "test": "node --experimental-strip-types --test src/*.test.ts",
+    "prepublishOnly": "npm test && npm run build"
+  },
+  "dependencies": {
+    "bidi-js": "^1.0.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
