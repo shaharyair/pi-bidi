@@ -39,7 +39,7 @@
   "types": "./dist/index.d.ts",
   "pi": {
     "extensions": [
-      "dist/index.js"
+      "./src/index.ts"
     ]
   },
   "scripts": {
@@ -51,10 +51,12 @@
     "bidi-js": "^1.0.3"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.74.0"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@earendil-works/pi-tui": "^0.84.4",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
