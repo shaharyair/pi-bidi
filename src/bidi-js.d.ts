@@ -1,6 +1,6 @@
-// bidi-js ships no types; only the two calls this extension makes are declared.
+// bidi-js ships no types; only the calls this extension makes are declared.
 declare module "bidi-js" {
-	interface EmbeddingLevels {
+	export interface EmbeddingLevels {
 		levels: Uint8Array;
 		paragraphs: { start: number; end: number; level: number }[];
 	}
@@ -15,6 +15,8 @@ declare module "bidi-js" {
 			start?: number,
 			end?: number,
 		): string;
+		getReorderedIndices(text: string, embeddingLevels: EmbeddingLevels): number[];
+		getMirroredCharacter(char: string): string | null;
 	}
 	export default function bidiFactory(): Bidi;
 }
