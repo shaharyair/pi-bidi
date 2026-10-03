@@ -29,23 +29,20 @@
     "node": ">=20"
   },
   "files": [
-    "dist",
     "src",
     "!src/**/*.test.ts",
     "README.md",
     "LICENSE"
   ],
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "pi": {
     "extensions": [
       "./src/index.ts"
     ]
   },
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/*.test.ts",
-    "prepublishOnly": "npm test && npm run build"
+    "prepublishOnly": "npm test && npm run check"
   },
   "dependencies": {
     "bidi-js": "^1.0.3"
@@ -55,8 +52,8 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.84.4",
-    "@earendil-works/pi-tui": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^1.0.0",
+    "@earendil-works/pi-tui": "^1.0.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   }
