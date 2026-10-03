@@ -12,8 +12,10 @@ after:   שלום! זה טקסט בעברית לבדיקה.
 ## Install
 
 ```sh
-pi install git:github.com/shaharyair/pi-bidi
+pi install npm:pi-bidi
 ```
+
+Or from git: `pi install git:github.com/shaharyair/pi-bidi`.
 
 Restart Pi.
 

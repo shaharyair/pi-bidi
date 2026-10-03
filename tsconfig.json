@@ -4,10 +4,8 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
-    "declaration": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src"
+    "noEmit": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]
