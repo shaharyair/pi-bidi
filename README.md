@@ -25,13 +25,13 @@ Restart Pi.
 
 ## Scope
 
-- **Transcript:** what Pi prints and your own messages. RTL lines are wrapped to the width in logical order, then reordered, so wrap points are correct. RTL paragraphs, headings and quotes sit flush right. List markers, heading `#`, quote `>` and table columns stay where markdown expects them; links, code spans and emphasis move as one unit.
+- **Transcript:** your own messages keep per-line direction detection. Assistant replies inherit the preceding question’s direction, including English-leading or English-only lines in an RTL conversation. Text is wrapped in logical order before reordering. Headings, quotes and table columns retain their Markdown structure; links, code spans and emphasis move as one unit. Persisted replies use their own preceding question when Pi supplies message metadata; older hosts fall back to the latest question.
 - **Editor:** the text you type is shown in visual order, flush right, with the cursor on the right character. Arrow keys still move logically (left arrow = one character back in the text), as in any logical-order RTL editor.
 
 Known limits:
 
 - **One direction per draft.** The editor takes its base direction from the first strong character of the whole draft, not per paragraph.
-- **List items stay left.** Their text is reordered, but the bullet is drawn by Pi on the left, so the text sits beside it rather than flush right.
+- **RTL reply lists use literal markers.** To keep bullets, numbers and checkboxes on the right, these items render as hard-broken paragraphs rather than parsed Markdown lists. Nested-list layout is not preserved. User-message lists retain the existing left-pinned markers.
 - **Replaces the editor component.** Another extension that also sets a custom editor will conflict; the last one to load wins.
 - **Fenced code blocks are skipped** on purpose — reordering them would make text copied out of the terminal differ from the source. Code span contents are not reordered either.
 

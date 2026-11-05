@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { editorRow, toVisual } from "./index.ts";
+import piBidi, { editorRow, toVisual } from "./index.ts";
+import * as tui from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext, MarkdownTransformer } from "@earendil-works/pi-coding-agent";
 
 test("reverses a Hebrew run", () => {
 	assert.equal(toVisual("שלום"), "םולש  ");
@@ -82,4 +84,94 @@ test("editor rows: RTL reordered, cursor moves with its character", () => {
 
 test("adjacent RTL atoms swap like words", () => {
 	assert.equal(toVisual("**אב** `x` **גד**"), "**דג** `x` **בא**  ");
+});
+
+const fakeCursor = (tui as { renderFakeCursor?: (text: string) => string }).renderFakeCursor;
+
+test("Pi 1.5 semantic cursor stays on its character and preserves width", { skip: !fakeCursor }, () => {
+	for (const [text, visual] of [["של", "לש"], ["مر", "رم"]]) {
+		const row = " ab" + tui.CURSOR_MARKER + fakeCursor!(text[0]) + text[1] + " ";
+		const expected = " " + visual[0] + tui.CURSOR_MARKER + fakeCursor!(visual[1]) + "ab ";
+		assert.equal(editorRow(row, "rtl"), expected);
+		assert.equal(tui.visibleWidth(editorRow(row, "rtl")), tui.visibleWidth(row));
+	}
+	assert.equal(editorRow(" " + fakeCursor!("h") + "ello ", "ltr"), " " + fakeCursor!("h") + "ello ");
+});
+
+test("malformed and separately styled cursor rows remain untouched", { skip: !fakeCursor }, () => {
+	const [start] = fakeCursor!("\0").split("\0");
+	for (const row of [start + "שלום", "\x1b[31m" + fakeCursor!("ש") + "לום\x1b[0m"]) {
+		assert.equal(editorRow(row, "rtl"), row);
+	}
+});
+
+test("explicit RTL direction aligns English-leading, Hebrew and pure English lines", () => {
+	for (const text of ["tool הוא כלי", "שלום tool", "English only"]) {
+		const result = toVisual(text, 40, "rtl");
+		assert.ok(result.startsWith("\u00a0"));
+		assert.ok(result.includes(text === "English only" ? "English only" : "tool"));
+		assert.equal(tui.visibleWidth(result.replace(/  $/, "")), 40);
+	}
+});
+
+test("explicit LTR direction keeps Hebrew-leading replies on the left", () => {
+	const result = toVisual("שלום tool", 40, "ltr");
+	assert.ok(!result.startsWith("\u00a0"));
+	assert.ok(result.includes("tool"));
+	assert.equal(toVisual("English only", 40, "ltr"), "English only");
+});
+
+test("RTL list markers travel with wrapped items rather than staying left", () => {
+	for (const marker of ["- ", "1. ", "- [x] "]) {
+		const lines = toVisual(marker + "tool שלום עולם tool שלום עולם", 20, "rtl").split("\n");
+		assert.ok(lines.length > 1);
+		for (const line of lines) {
+			assert.ok(line.includes("\u2060"));
+			assert.ok(line.endsWith("  "));
+			assert.ok(tui.visibleWidth(line.replace(/  $/, "")) <= 20);
+		}
+		assert.ok(lines.some((line) => line.includes("-") || line.includes("1")));
+	}
+});
+
+test("forced direction preserves code and Markdown structural lines", () => {
+	const source = '```js\nconst text = "שלום";\n```\n    const text = "שלום";\n\tשלום\n\n---\n***\n===';
+	assert.equal(toVisual(source, 40, "rtl"), source);
+	assert.equal(toVisual("| שם | tool |", 40, "rtl"), toVisual("| שם | tool |", 40));
+	const formatted = toVisual("tool **שלום** [כאן](https://example.com) `npm test`", 80, "rtl");
+	assert.ok(formatted.includes("**םולש**"));
+	assert.ok(formatted.includes("[ןאכ](https://example.com)"));
+	assert.ok(formatted.includes("`npm test`"));
+});
+
+test("registered transformer follows each question through history and streaming", () => {
+	const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => void>();
+	let transform!: MarkdownTransformer;
+	const entry = (id: string, role: string, content: unknown) => ({
+		type: "message", id, timestamp: id, message: { role, content },
+	});
+	let branch = [
+		entry("q1", "user", [{ type: "text", text: "מה זה tool?" }]),
+		entry("a1", "assistant", []),
+		entry("q2", "user", "Explain tool"),
+		entry("a2", "assistant", []),
+	];
+	piBidi({
+		registerMarkdownTransformer: (handler: MarkdownTransformer) => { transform = handler; },
+		on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => void) => { handlers.set(name, handler); },
+	} as unknown as ExtensionAPI);
+	const session = { hasUI: false, sessionManager: { getBranch: () => branch } } as unknown as ExtensionContext;
+	handlers.get("session_start")!({}, session);
+	const context = { messageType: "assistant" as const, availableWidth: 40, isStreaming: false };
+	assert.ok(transform("tool הוא כלי", { ...context, messageId: "a1" }).startsWith("\u00a0"));
+	assert.ok(transform("tool הוא כלי", { ...context, timestamp: "a1" }).startsWith("\u00a0"));
+	assert.ok(!transform("שלום tool", { ...context, messageId: "a2" }).startsWith("\u00a0"));
+	assert.ok(!transform("שלום tool", { ...context, isStreaming: true }).startsWith("\u00a0"));
+	branch = [...branch, entry("q3", "user", "מה זה?")];
+	assert.ok(transform("tool הוא כלי", { ...context, isStreaming: true }).startsWith("\u00a0"));
+	assert.equal(transform("tool הוא כלי", { ...context, messageType: "user" }), toVisual("tool הוא כלי", 40));
+	branch = [];
+	assert.equal(transform("שלום tool", context), toVisual("שלום tool", 40));
+	handlers.get("session_shutdown")!({}, session);
+	assert.equal(transform("שלום tool", context), toVisual("שלום tool", 40));
 });

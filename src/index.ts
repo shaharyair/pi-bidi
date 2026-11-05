@@ -1,5 +1,6 @@
-import { CustomEditor, type ExtensionAPI, type MarkdownTransformContext } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionAPI, type ExtensionContext, type MarkdownTransformContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
+import * as tui from "@earendil-works/pi-tui";
 import bidiFactory, { type EmbeddingLevels } from "bidi-js";
 
 /**
@@ -10,7 +11,7 @@ import bidiFactory, { type EmbeddingLevels } from "bidi-js";
  * ordered text instead.
  *
  * The markdown hook runs before parsing, so markdown syntax has to survive the
- * reordering: block prefixes (lists, headings, quotes) stay at the line start,
+ * reordering: block prefixes (headings, quotes) stay at the line start,
  * table cells are reordered one by one, and links, code spans and emphasis move
  * as one unit. RTL lines are pre-wrapped to the available width in logical
  * order, each piece ends in a hard break so the renderer never re-wraps
@@ -33,6 +34,10 @@ const WJ = "\u2060";
 
 const bidi = bidiFactory();
 const graphemes = new Intl.Segmenter();
+// Pi 1.5 uses semantic cursor markers; older hosts only have ANSI reverse video.
+// Discover markers through the public renderer without requiring it on older hosts.
+const fakeCursor = (tui as { renderFakeCursor?: (text: string) => string }).renderFakeCursor;
+const [FAKE_CURSOR_START, FAKE_CURSOR_END] = fakeCursor?.("\0").split("\0") ?? [];
 
 type Dir = "rtl" | "ltr";
 
@@ -147,15 +152,23 @@ function tableRow(line: string): string {
 	});
 }
 
-function block(line: string, width: number): string {
+function block(line: string, width: number, outer?: Dir): string {
 	if (/^\s*\|/.test(line)) return tableRow(line);
 	const m = PREFIX.exec(line)!;
 	const [quote, marker = ""] = [m[1]!, m[2]];
 	const isHeading = marker.startsWith("#");
+	if (outer === "rtl" && marker && !isHeading) {
+		// Pi pins parsed list markers left. Render RTL items as hard-broken
+		// paragraphs so their literal marker travels with the contents instead.
+		const avail = Math.max(10, width - cells(quote));
+		return inline(marker + line.slice(m[0].length), avail, outer).lines
+			.map(({ text, width: w }) => quote + (Number.isFinite(avail) ? NBSP.repeat(Math.max(0, avail - w)) : "") + WJ + text + "  ")
+			.join("\n");
+	}
 	// h1/h2 render without their "#" prefix; quotes render "> " as "│ ", same width.
 	const shown = isHeading && marker.trim().length < 3 ? cells(quote) : cells(m[0]);
 	const avail = Math.max(10, width - shown);
-	const { dir, lines } = inline(line.slice(m[0].length), avail);
+	const { dir, lines } = inline(line.slice(m[0].length), avail, outer);
 	const cont = quote + (isHeading ? marker : " ".repeat(marker.length));
 	// Right-align RTL paragraphs, quotes and headings; list text stays beside its marker.
 	const align = dir === "rtl" && Number.isFinite(width) && (!marker || isHeading);
@@ -171,14 +184,14 @@ function block(line: string, width: number): string {
 
 /**
  * Reorder logical-order markdown to visual order, line by line, with the base
- * direction auto-detected per line from its first strong character. A finite
+ * direction auto-detected per line unless supplied by the caller. A finite
  * width enables wrapping and right-alignment.
  *
  * Fenced code blocks are left alone: reordering them would make text copied
  * out of the terminal differ from the source.
  */
-export function toVisual(text: string, width = Infinity): string {
-	if (!RTL.test(text)) return text;
+export function toVisual(text: string, width = Infinity, outer?: Dir): string {
+	if (!RTL.test(text) && outer !== "rtl") return text;
 	let fence: string | undefined;
 	return text
 		.split("\n")
@@ -193,31 +206,35 @@ export function toVisual(text: string, width = Infinity): string {
 				fence = marker;
 				return line;
 			}
-			if (!RTL.test(line)) return line;
-			return block(line, width);
+			if (!line.trim() || /^(?: {4}|\t)/.test(line) || /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line) || /^\s*=+\s*$/.test(line)) return line;
+			if (!RTL.test(line) && outer !== "rtl") return line;
+			return block(line, width, outer);
 		})
 		.join("\n");
 }
 
 /**
- * Reorder one rendered editor row, moving the reverse-video cursor with its
- * character. Rows carrying any other styling are returned untouched. In an RTL
+ * Reorder one rendered editor row, moving its semantic or reverse-video cursor
+ * with its character. Rows carrying any other styling are returned untouched. In an RTL
  * row the padding lands on the left, so the text sits flush right.
  */
 export function editorRow(row: string, dir: Dir): string {
 	const marker = row.includes(CURSOR_MARKER) ? CURSOR_MARKER : "";
 	let s = row.replace(CURSOR_MARKER, "");
 	let cursor = -1;
-	const on = s.indexOf("\x1b[7m");
+	const [open, close] = FAKE_CURSOR_START && s.includes(FAKE_CURSOR_START)
+		? [FAKE_CURSOR_START, FAKE_CURSOR_END!]
+		: ["\x1b[7m", "\x1b[0m"];
+	const on = s.indexOf(open);
 	if (on >= 0) {
-		const off = s.indexOf("\x1b[0m", on);
+		const off = s.indexOf(close, on + open.length);
 		if (off < 0) return row;
-		s = s.slice(0, on) + s.slice(on + 4, off) + s.slice(off + 4);
+		s = s.slice(0, on) + s.slice(on + open.length, off) + s.slice(off + close.length);
 		cursor = on;
 	}
 	if (s.includes("\x1b") || (dir === "ltr" && !RTL.test(s))) return row;
 	return visual(s, bidi.getEmbeddingLevels(s, dir))
-		.map((c) => (c.start === cursor ? `${marker}\x1b[7m${c.text}\x1b[0m` : c.text))
+		.map((c) => (c.start === cursor ? `${marker}${open}${c.text}${close}` : c.text))
 		.join("");
 }
 
@@ -241,11 +258,35 @@ class BidiEditor extends CustomEditor {
 	}
 }
 
+/** Direction of the user turn preceding this reply, including persisted history. */
+function questionDirection(
+	branch: readonly SessionEntry[],
+	context: MarkdownTransformContext & { messageId?: string; timestamp?: string },
+): Dir | undefined {
+	const target = branch.findIndex((entry) => context.messageId
+		? entry.id === context.messageId
+		: context.timestamp ? entry.timestamp === context.timestamp : false);
+	for (let i = target < 0 ? branch.length - 1 : target - 1; i >= 0; i--) {
+		const entry = branch[i]!;
+		if (entry.type !== "message" || entry.message.role !== "user") continue;
+		const content = entry.message.content;
+		const text = typeof content === "string" ? content
+			: content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+		if (text.trim()) return baseDir(text);
+	}
+	return undefined;
+}
+
 export default function piBidi(pi: ExtensionAPI): void {
+	let session: ExtensionContext | undefined;
 	pi.registerMarkdownTransformer((md: string, ctx: MarkdownTransformContext) =>
-		toVisual(md, ctx.availableWidth || Infinity),
+		toVisual(md, ctx.availableWidth || Infinity,
+			ctx.messageType === "user" || !session ? undefined
+				: questionDirection(session.sessionManager.getBranch(), ctx)),
 	);
 	pi.on("session_start", (_event, ctx) => {
+		session = ctx;
 		if (ctx.hasUI) ctx.ui.setEditorComponent((tui, theme, kb) => new BidiEditor(tui, theme, kb));
 	});
+	pi.on("session_shutdown", () => { session = undefined; });
 }
